@@ -7,6 +7,19 @@ description: Diagnose, review, and harden production PostgreSQL systems using ev
 
 Use this skill to keep PostgreSQL changes measurable, provider-aware, and recoverable. Treat every fixed threshold and sizing formula as a hypothesis until it is checked against the actual workload.
 
+## Preserve provenance and source priority
+
+Treat this skill as an independent synthesis of Hatchet's [The startup's Postgres survival guide](https://hatchet.run/blog/postgres-survival-guide), the external [Supabase Agent Skills](https://github.com/supabase/agent-skills), and official PostgreSQL documentation. Do not imply affiliation with or endorsement by those projects.
+
+Resolve conflicts in this order:
+
+1. The behavior and constraints of the deployed PostgreSQL version and managed provider
+2. Official documentation for that exact PostgreSQL version
+3. `$supabase-postgres-best-practices` and, for Supabase projects, `$supabase`
+4. Hatchet's experience-based heuristics
+
+Use Hatchet for operational patterns, Supabase for detailed reusable rules, and PostgreSQL/provider documentation for authoritative semantics and version-specific behavior.
+
 ## Compose the companion skills
 
 1. Use `$supabase-postgres-best-practices` as the detailed baseline for query, index, schema, locking, access-pattern, and monitoring rules. Read only the reference files relevant to the task.

@@ -4,6 +4,19 @@ An evidence-first Agent Skill for diagnosing, reviewing, and hardening productio
 
 It combines the detailed SQL and schema guidance from [Supabase Agent Skills](https://github.com/supabase/agent-skills) with operational lessons synthesized from Hatchet's [The startup's Postgres survival guide](https://hatchet.run/blog/postgres-survival-guide) and current PostgreSQL documentation.
 
+## Sources and composition
+
+| Source | How this skill uses it |
+|---|---|
+| [Hatchet — The startup's Postgres survival guide](https://hatchet.run/blog/postgres-survival-guide) | Primary operational inspiration: workload-shaped schemas, short transactions, connection pooling, planner diagnosis, batching, autovacuum, bloat, `SKIP LOCKED`, partitioning, and large-table backfills. Its experience-based rules are retained where useful and qualified where they are too absolute. |
+| [Supabase Agent Skills](https://github.com/supabase/agent-skills) | External companion rules for queries, indexes, schema design, locking, access patterns, monitoring, RLS, and Supabase-specific behavior. This repository does not copy or vendor those skills. |
+| [PostgreSQL 18 documentation](https://www.postgresql.org/docs/18/) | Primary technical authority used to verify and correct version-sensitive behavior such as `CREATE INDEX CONCURRENTLY`, `VACUUM`, UUIDv7, multicolumn indexes, locking, and partition maintenance. |
+| Managed-provider documentation | Final authority for hosted limits, supported extensions, pooler behavior, privileges, observability, and operational procedures. |
+
+Source priority is: the deployed PostgreSQL version and provider documentation, official PostgreSQL documentation, Supabase's companion rules, then Hatchet's experiential heuristics. Fixed thresholds and performance claims are treated as hypotheses until measured against the real workload.
+
+This is an independent synthesis and is not an official Hatchet, Supabase, or PostgreSQL project.
+
 ## What it covers
 
 - production incident triage and causal diagnosis
