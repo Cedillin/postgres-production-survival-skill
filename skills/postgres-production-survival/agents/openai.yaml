@@ -1,0 +1,4 @@
+interface:
+  display_name: "Postgres Production Survival"
+  short_description: "Diagnose and harden production Postgres safely"
+  default_prompt: "Use $postgres-production-survival to diagnose this Postgres risk and propose a safe, evidence-backed remediation."
