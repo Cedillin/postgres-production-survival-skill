@@ -72,9 +72,13 @@ from pg_stat_user_tables
 order by n_dead_tup desc
 limit 30;
 
+-- Column set is version-stable across supported majors. PG17 renamed the
+-- dead-tuple accounting: on PG17+ you may also select
+-- `dead_tuple_bytes, num_dead_item_ids`; on PG16 and earlier those columns do
+-- not exist (use `max_dead_tuples, num_dead_tuples`). Selecting the version
+-- wrong set errors mid-incident, so default to the stable columns below.
 select pid, datname, relid::regclass as table_name, phase,
-       heap_blks_total, heap_blks_scanned, heap_blks_vacuumed,
-       dead_tuple_bytes, num_dead_item_ids
+       heap_blks_total, heap_blks_scanned, heap_blks_vacuumed
 from pg_stat_progress_vacuum;
 ```
 
@@ -92,6 +96,32 @@ from pg_class c
 where c.relkind in ('r', 'm')
 order by xid_age desc
 limit 30;
+```
+
+Inspect replication and slots. A stale replica (via `hot_standby_feedback`) or a
+lagging/inactive replication slot can pin the cleanup horizon and drive WAL and
+storage growth — the mechanism the classification and causal-chain sections
+already ask you to consider. Run these on the primary; adapt to role and
+provider permissions.
+
+```sql
+-- Replication slots: inactive slots and retained WAL are common wraparound and
+-- disk-growth drivers. `wal_status = 'lost'` means required WAL was already
+-- removed, so the slot cannot catch up.
+select slot_name, slot_type, active, wal_status,
+       xmin, catalog_xmin,
+       pg_size_pretty(
+         pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)
+       ) as retained_wal
+from pg_replication_slots
+order by pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) desc nulls last;
+
+-- Connected replicas and lag. Large write/flush/replay lag explains replica
+-- staleness and, with feedback enabled, cleanup pinned on the primary.
+select application_name, client_addr, state, sync_state,
+       write_lag, flush_lag, replay_lag
+from pg_stat_replication
+order by coalesce(replay_lag, flush_lag, write_lag) desc nulls last;
 ```
 
 If `pg_stat_statements` is already enabled, rank normalized statements by total time, mean time, calls, shared blocks read, temp blocks, and WAL for the incident window. Do not enable or reset it during an incident without authorization.
