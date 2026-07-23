@@ -72,11 +72,11 @@ from pg_stat_user_tables
 order by n_dead_tup desc
 limit 30;
 
--- Column set is version-stable across supported majors. PG17 renamed the
--- dead-tuple accounting: on PG17+ you may also select
--- `dead_tuple_bytes, num_dead_item_ids`; on PG16 and earlier those columns do
--- not exist (use `max_dead_tuples, num_dead_tuples`). Selecting the version
--- wrong set errors mid-incident, so default to the stable columns below.
+-- The query below uses columns shared by supported majors. Dead-tuple
+-- accounting is version-specific: PG17+ exposes `max_dead_tuple_bytes`,
+-- `dead_tuple_bytes`, and `num_dead_item_ids`; PG16 and earlier expose
+-- `max_dead_tuples` and `num_dead_tuples`. Selecting the wrong set errors
+-- mid-incident, so begin with the stable columns below.
 select pid, datname, relid::regclass as table_name, phase,
        heap_blks_total, heap_blks_scanned, heap_blks_vacuumed
 from pg_stat_progress_vacuum;
@@ -85,14 +85,24 @@ from pg_stat_progress_vacuum;
 Inspect XID age. Compare it with the actual server settings; do not use a memorized percentage as the sole decision criterion.
 
 ```sql
-select datname, age(datfrozenxid) as xid_age
+select datname,
+       age(datfrozenxid) as xid_age,
+       mxid_age(datminmxid) as mxid_age
 from pg_database
 order by xid_age desc;
 
 select c.oid::regclass as table_name,
-       age(c.relfrozenxid) as xid_age,
-       mxid_age(c.relminmxid) as mxid_age
+       t.oid::regclass as toast_table,
+       greatest(
+         age(c.relfrozenxid),
+         coalesce(age(t.relfrozenxid), 0)
+       ) as xid_age,
+       greatest(
+         mxid_age(c.relminmxid),
+         coalesce(mxid_age(t.relminmxid), 0)
+       ) as mxid_age
 from pg_class c
+left join pg_class t on t.oid = c.reltoastrelid
 where c.relkind in ('r', 'm')
 order by xid_age desc
 limit 30;
@@ -105,23 +115,30 @@ already ask you to consider. Run these on the primary; adapt to role and
 provider permissions.
 
 ```sql
--- Replication slots: inactive slots and retained WAL are common wraparound and
--- disk-growth drivers. `wal_status = 'lost'` means required WAL was already
--- removed, so the slot cannot catch up.
+-- Replication slots: inspect both cleanup horizons and WAL state. The LSN
+-- difference is distance from current WAL to `restart_lsn`, not verified
+-- on-disk retained bytes, especially when `wal_status` is `unreserved` or
+-- `lost`. A `lost` slot is no longer usable.
 select slot_name, slot_type, active, wal_status,
-       xmin, catalog_xmin,
-       pg_size_pretty(
-         pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)
-       ) as retained_wal
+       xmin, catalog_xmin, restart_lsn,
+       pg_wal_lsn_diff(
+         pg_current_wal_lsn(), restart_lsn
+       ) as wal_distance_bytes
 from pg_replication_slots
-order by pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) desc nulls last;
+order by wal_distance_bytes desc nulls last;
 
--- Connected replicas and lag. Large write/flush/replay lag explains replica
--- staleness and, with feedback enabled, cleanup pinned on the primary.
+-- `backend_xmin` shows the standby cleanup horizon reported by
+-- `hot_standby_feedback`. LSN distance estimates replay backlog in bytes.
+-- The lag intervals describe recent commit acknowledgement/visibility delay;
+-- they are neither backlog size nor a catch-up ETA.
 select application_name, client_addr, state, sync_state,
+       backend_xmin,
+       age(backend_xmin) as feedback_xmin_age,
+       sent_lsn, write_lsn, flush_lsn, replay_lsn,
+       pg_wal_lsn_diff(sent_lsn, replay_lsn) as replay_backlog_bytes,
        write_lag, flush_lag, replay_lag
 from pg_stat_replication
-order by coalesce(replay_lag, flush_lag, write_lag) desc nulls last;
+order by replay_backlog_bytes desc nulls last;
 ```
 
 If `pg_stat_statements` is already enabled, rank normalized statements by total time, mean time, calls, shared blocks read, temp blocks, and WAL for the incident window. Do not enable or reset it during an incident without authorization.
@@ -154,6 +171,10 @@ Add prevention at the causal boundary: bounded pools, timeouts, short transactio
 
 ## Primary sources
 
+- [PostgreSQL 16: VACUUM progress reporting](https://www.postgresql.org/docs/16/progress-reporting.html#VACUUM-PROGRESS-REPORTING)
+- [PostgreSQL 17: VACUUM progress reporting](https://www.postgresql.org/docs/17/progress-reporting.html#VACUUM-PROGRESS-REPORTING)
+- [PostgreSQL 16: Replication monitoring](https://www.postgresql.org/docs/16/monitoring-stats.html#MONITORING-PG-STAT-REPLICATION-VIEW)
+- [PostgreSQL 16: Replication slots](https://www.postgresql.org/docs/16/view-pg-replication-slots.html)
 - [PostgreSQL 18: Monitoring database activity](https://www.postgresql.org/docs/18/monitoring-stats.html)
 - [PostgreSQL 18: Routine vacuuming](https://www.postgresql.org/docs/18/routine-vacuuming.html)
 - [PostgreSQL 18: Explicit locking](https://www.postgresql.org/docs/18/explicit-locking.html)
